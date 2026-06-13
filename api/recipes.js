@@ -85,7 +85,7 @@ function pageToRecipe(page) {
     favorite: !!(p["Favorite"] && p["Favorite"].checkbox),
     flavor: (p["Flavor"] && p["Flavor"].select && p["Flavor"].select.name) || "savory",
     meal: ((p["Meal"] && p["Meal"].multi_select) || []).map(o => o.name),
-    tags: ((p["Tags"] && p["Tags"].multi_select) || []).map(o => o.name),
+    tags: ((p["Tags"] && p["Tags"].multi_select) || []).map(o => o.name.toLowerCase()),
     hasPhoto: false,
   };
 }
