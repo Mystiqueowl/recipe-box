@@ -17,15 +17,14 @@
 <body>
 <div id="root"></div>
 <script>
-/* Storage shim: use the artifact storage if present, otherwise localStorage.
-   This is what lets the same code run both in preview and as a real website. */
+/* Photo + shopping-list storage stays in browser (Notion handles recipe data). */
 if (!window.storage) {
   var LS = window.localStorage;
   window.storage = {
-    get: function(key){ try { var v = LS.getItem(key); return Promise.resolve(v===null?null:{key:key,value:v}); } catch(e){ return Promise.resolve(null);} },
-    set: function(key,value){ try { LS.setItem(key,value); return Promise.resolve({key:key,value:value}); } catch(e){ return Promise.reject(e);} },
-    delete: function(key){ try { LS.removeItem(key); return Promise.resolve({key:key,deleted:true}); } catch(e){ return Promise.resolve(null);} },
-    list: function(prefix){ var keys=[]; for(var i=0;i<LS.length;i++){ var k=LS.key(i); if(!prefix||k.indexOf(prefix)===0) keys.push(k);} return Promise.resolve({keys:keys}); }
+    get: function(k){ try { var v=LS.getItem(k); return Promise.resolve(v===null?null:{key:k,value:v}); } catch(e){ return Promise.resolve(null);} },
+    set: function(k,v){ try { LS.setItem(k,v); return Promise.resolve({key:k,value:v}); } catch(e){ return Promise.reject(e);} },
+    delete: function(k){ try { LS.removeItem(k); return Promise.resolve({key:k,deleted:true}); } catch(e){ return Promise.resolve(null);} },
+    list: function(p){ var keys=[]; for(var i=0;i<LS.length;i++){ var k=LS.key(i); if(!p||k.indexOf(p)===0) keys.push(k);} return Promise.resolve({keys:keys}); }
   };
 }
 </script>
@@ -101,187 +100,35 @@ const SEED_IDS_KEY = "seeded-ids-v1";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 /* ─────────── starter recipes imported from Ritz's Notion (Recipes & meal) ─────────── */
-const SEED_RECIPES = [
-  {
-    id: "notion-kimchi-fried-rice", createdAt: Date.now(),
-    title: "Kimchi Fried Rice",
-    description: "Flavorful, satisfying, and fills the kitchen with wonderful aromatics.",
-    servings: 4, time_minutes: 20, cuisine: "Korean",
-    meal: ["lunch", "dinner"], flavor: "savory", veg: true,
-    ingredients: [
-      { amount: "3–4 cups", name: "cooked rice, preferably a day or two old" },
-      { amount: "3/4 cup", name: "kimchi" },
-      { amount: "1–2 tbsp", name: "gochujang" },
-      { amount: "1 bunch", name: "green onion, chopped" },
-      { amount: "4 servings", name: "protein of your choice — tofu, paneer, egg, etc." },
-      { amount: "1–2 tsp", name: "sesame oil, to finish" },
-    ],
-    steps: [
-      "Sauté the bottom half of the green onions until soft.",
-      "Add the protein, kimchi, and gochujang. Start with 1 tbsp gochujang — add more later if you want it spicier.",
-      "Add the rice and mix well. If it's too dry, add a little water.",
-      "Drizzle with 1–2 tsp sesame oil and garnish with the remaining green onions.",
-    ],
-    tags: ["easy", "one-pan", "leftover-rice"], hasPhoto: false,
-  },
-  {
-    id: "notion-dates-laddo", createdAt: Date.now() - 1,
-    title: "Dates Laddo",
-    description: "Naturally sweet laddos with roasted nuts, seeds, and warming spices.",
-    servings: 8, time_minutes: 25, cuisine: "Indian",
-    meal: ["dessert", "snack"], flavor: "sweet", veg: true,
-    ingredients: [
-      { amount: "2 cups", name: "dates, pitted" },
-      { amount: "very little", name: "oil, for roasting dates" },
-      { amount: "1 cup", name: "mixed nuts" },
-      { amount: "1/2 cup", name: "seeds — pumpkin, sunflower, watermelon" },
-      { amount: "1/2 tsp", name: "dry ginger powder" },
-      { amount: "1/2 tsp", name: "fennel seed powder" },
-    ],
-    steps: [
-      "Roast the dates with very little oil so they don't stick to the pan.",
-      "Roast the nuts separately until fragrant, then roughly chop.",
-      "Mix the dates with nuts, seeds, dry ginger powder, and fennel seed powder.",
-      "While the mixture is still warm, press and roll into laddos.",
-    ],
-    tags: ["no-bake", "healthy", "festive"], hasPhoto: false,
-  },
-  {
-    id: "notion-frittata-muffins", createdAt: Date.now() - 2,
-    title: "Frittata Muffins",
-    description: "Savory chickpea-flour muffins packed with spinach, herbs, and vegan feta.",
-    servings: 12, time_minutes: 45, cuisine: "Mediterranean",
-    meal: ["breakfast", "snack"], flavor: "savory", veg: true,
-    ingredients: [
-      { amount: "2 cups", name: "chickpea flour (chana lot)" },
-      { amount: "1 cup", name: "tightly packed chopped spinach" },
-      { amount: "2 tbsp", name: "nutritional yeast" },
-      { amount: "2 tbsp", name: "fresh lemon juice" },
-      { amount: "1 tbsp", name: "Italian seasoning, plus more for topping" },
-      { amount: "1 tbsp", name: "sunflower or avocado oil" },
-      { amount: "1 tsp", name: "sea salt" },
-      { amount: "1 tsp", name: "baking powder" },
-      { amount: "1/2 tsp", name: "baking soda" },
-      { amount: "1/4 tsp", name: "asafoetida (hing)" },
-      { amount: "2 cups", name: "water" },
-      { amount: "1 cup", name: "finely chopped red bell pepper" },
-      { amount: "1/2 cup", name: "chopped fresh herbs — basil, parsley, or dill" },
-      { amount: "1/2 cup", name: "chopped green olives, sun-dried tomatoes, and/or jalapeños" },
-      { amount: "3/4 cup", name: "crumbled vegan feta" },
-      { amount: "as needed", name: "oil or cooking spray for the muffin tin" },
-    ],
-    steps: [
-      "Preheat the oven to 375°F (190°C). Lightly coat 12 cups of a muffin tin with oil.",
-      "Whisk together chickpea flour, spinach, nutritional yeast, lemon juice, Italian seasoning, oil, salt, baking powder, baking soda, and asafoetida. Add 2 cups water and whisk until completely smooth.",
-      "Fold in the bell pepper, herbs, olive mixture, and 1/2 cup of the feta.",
-      "Scoop about 1/4 cup batter into each muffin cup, stirring between scoops so the vegetables stay distributed. Top with remaining feta and a pinch of Italian seasoning.",
-      "Bake 25–30 minutes until set. Cool 5 minutes in the pan, then transfer to a rack. Serve warm with muhammara or your favorite dip.",
-    ],
-    tags: ["vegan", "meal-prep", "baking", "high-protein"], hasPhoto: false,
-  },
-  {
-    id: "notion-paan-tres-leches", createdAt: Date.now() - 3,
-    title: "Paan Tres Leches Cake",
-    description: "An Indian-fusion tres leches soaked in paan-gulkand milk with rose whipped cream.",
-    servings: 9, time_minutes: 90, cuisine: "Indian fusion",
-    meal: ["dessert"], flavor: "sweet", veg: true,
-    ingredients: [
-      { amount: "1/2 cup", name: "flavorless oil (cake)" },
-      { amount: "1/2 cup", name: "granulated sugar (cake)" },
-      { amount: "1 cup", name: "whole milk plain yogurt (cake)" },
-      { amount: "1/2 tsp", name: "baking soda (cake)" },
-      { amount: "1/2 tsp", name: "vanilla extract (cake)" },
-      { amount: "1.5 cups", name: "all purpose flour (cake)" },
-      { amount: "1 1/4 tsp", name: "baking powder (cake)" },
-      { amount: "1/4 tsp", name: "salt (cake)" },
-      { amount: "1 1/4 cups", name: "evaporated milk (milk mix)" },
-      { amount: "4 large", name: "paan leaves (milk mix)" },
-      { amount: "1 tsp", name: "fennel seeds (milk mix)" },
-      { amount: "1/4 cup", name: "gulkand (milk mix)" },
-      { amount: "1/2 cup", name: "sweetened condensed milk (milk mix)" },
-      { amount: "1/2 cup", name: "heavy cream (milk mix)" },
-      { amount: "1.5 cups", name: "heavy whipping cream (topping)" },
-      { amount: "2 tbsp", name: "powdered sugar (topping)" },
-      { amount: "1 tsp", name: "rose water (topping)" },
-    ],
-    steps: [
-      "Preheat oven to 350°F. Grease an 8-inch square pan. Whisk oil and sugar until the sugar dissolves.",
-      "Stir baking soda into the yogurt, rest 2 minutes until it bubbles, then mix into the oil-sugar along with vanilla.",
-      "Sift in flour, baking powder, and salt; fold gently without overmixing. Bake 25–30 minutes until a toothpick comes out clean. Cool in the pan.",
-      "Blend evaporated milk with paan leaves; add fennel seeds and gulkand, blend again, then strain. Stir in condensed milk and heavy cream.",
-      "Poke holes all over the cooled cake. Reserve 300 ml of paan milk for serving; slowly pour the rest over the cake in parts, letting it absorb. Cover and refrigerate at least 6 hours or overnight.",
-      "Whip cream with powdered sugar and rose water to stiff peaks. Top the cake, decorate with candied fennel, slice into 9 squares, and serve with the reserved paan milk poured around.",
-    ],
-    tags: ["baking", "paan", "festive", "make-ahead"], hasPhoto: false,
-  },
-  {
-    id: "notion-cilantro-dressing", createdAt: Date.now() - 4,
-    title: "Creamy Cilantro Dressing",
-    description: "A 5-minute blender dressing — cashew-creamy with lime and a hint of cayenne.",
-    servings: 6, time_minutes: 5, cuisine: "Mexican-ish",
-    meal: ["lunch", "dinner"], flavor: "savory", veg: true,
-    ingredients: [
-      { amount: "1/4 cup", name: "olive oil" },
-      { amount: "1/4 cup", name: "water" },
-      { amount: "1/2 cup", name: "cashews (boil 5–10 min if you don't have a high-speed blender)" },
-      { amount: "1 tbsp", name: "lime juice" },
-      { amount: "1 cup", name: "cilantro" },
-      { amount: "1/2 tsp", name: "salt" },
-      { amount: "1/4 tsp", name: "pepper" },
-      { amount: "pinch", name: "cayenne pepper" },
-    ],
-    steps: [
-      "Blend all the ingredients together until completely smooth.",
-      "Store in an airtight jar in the fridge for up to 5 days. Pairs perfectly with a summer corn and avocado salad.",
-    ],
-    tags: ["dressing", "no-cook", "5-minute"], hasPhoto: false,
-  },
-  {
-    id: "ig-creamy-miso-peanut-ramen", createdAt: Date.now() - 5,
-    title: "Creamy Miso Peanut Vegetarian Ramen",
-    description: "A cozy, creamy vegetarian ramen made with whatever veggies you have at home.",
-    servings: 2, time_minutes: 25, cuisine: "Japanese-inspired",
-    meal: ["lunch", "dinner"], flavor: "savory", veg: true,
-    ingredients: [
-      { amount: "1 tbsp", name: "sesame oil" },
-      { amount: "1–2 tsp", name: "chili crunch (plus more for topping)" },
-      { amount: "1 tsp", name: "grated ginger" },
-      { amount: "1 tbsp", name: "miso paste" },
-      { amount: "1 tbsp", name: "peanut butter" },
-      { amount: "1 cup", name: "coconut milk" },
-      { amount: "2 cups", name: "water" },
-      { amount: "2 tsp", name: "brown sugar (or date sugar)" },
-      { amount: "1 tbsp", name: "soy sauce" },
-      { amount: "", name: "ramen or udon noodles" },
-      { amount: "1 block", name: "extra-firm tofu, cubed" },
-      { amount: "", name: "bok choy, broccoli, mushrooms, corn (or whatever veggies you have)" },
-      { amount: "", name: "lemon + cilantro, for topping" },
-    ],
-    steps: [
-      "Make the broth: heat sesame oil, then add chili crunch and ginger and sauté 1 minute. Stir in miso and peanut butter for another minute. Add coconut milk, water, soy sauce, and sugar, and simmer 3–5 minutes.",
-      "Cook the noodles according to package instructions. Add bok choy in the last 2 minutes if using.",
-      "Prep toppings: sauté the veggies, and air fry the tofu at 375°F for 10–12 minutes until golden.",
-      "Assemble: add noodles to the broth and top with tofu, veggies, corn, a squeeze of lemon, cilantro, and extra chili crunch.",
-    ],
-    tags: ["one-pot", "tofu", "fridge-clean-out", "comfort-food"], hasPhoto: false,
-  },
-];
+const SEED_RECIPES = [];
 
 /* ───────────────────────── storage helpers ───────────────────────── */
 async function loadRecipes() {
-  try {
-    const r = await window.storage.get(STORAGE_KEY);
-    return r ? JSON.parse(r.value) : [];
-  } catch {
-    return [];
+  const r = await fetch("/api/recipes");
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error("Couldn't load recipes from Notion: " + t.slice(0, 200));
   }
+  const d = await r.json();
+  return d.recipes || [];
 }
-async function saveRecipes(list) {
-  try {
-    await window.storage.set(STORAGE_KEY, JSON.stringify(list));
-  } catch (e) {
-    console.error("save failed", e);
-  }
+// no-op: writes go through saveRecipe / deleteRecipe directly to the API
+async function saveRecipes(list) { return list; }
+async function saveRecipe(recipe) {
+  const isNew = !recipe.id || !/^[0-9a-f]{8}-/.test(recipe.id);
+  const body = isNew ? { recipe } : { id: recipe.id, recipe };
+  const r = await fetch("/api/recipes", {
+    method: isNew ? "POST" : "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error("Save failed");
+  const d = await r.json();
+  return d.recipe;
+}
+async function deleteRecipeApi(id) {
+  const r = await fetch("/api/recipes?id=" + encodeURIComponent(id), { method: "DELETE" });
+  if (!r.ok) throw new Error("Delete failed");
 }
 async function loadPhoto(id) {
   try {
@@ -936,30 +783,13 @@ function RecipeShelf() {
   const [showImport, setShowImport] = useState(false);
   const [showShopping, setShowShopping] = useState(false);
   const [restoreMsg, setRestoreMsg] = useState("");
+  const [loadErr, setLoadErr] = useState("");
   const [thumbs, setThumbs] = useState({});
 
   useEffect(() => {
     (async () => {
-      const existing = await loadRecipes();
-      const have = new Set(existing.map(r => r.id));
-
-      let seededIds = [];
-      try {
-        const r = await window.storage.get(SEED_IDS_KEY);
-        if (r) seededIds = JSON.parse(r.value);
-      } catch {}
-      const seededSet = new Set(seededIds);
-      // migration + safety: any seed already on the shelf counts as injected
-      SEED_RECIPES.forEach(s => { if (have.has(s.id)) seededSet.add(s.id); });
-
-      // a seed is "new" only if it's never been injected and isn't already present
-      const fresh = SEED_RECIPES.filter(s => !seededSet.has(s.id));
-      fresh.forEach(s => seededSet.add(s.id));
-
-      const next = fresh.length ? [...fresh, ...existing] : existing;
-      if (fresh.length) await saveRecipes(next);
-      try { await window.storage.set(SEED_IDS_KEY, JSON.stringify([...seededSet])); } catch {}
-      setRecipes(next);
+      try { setRecipes(await loadRecipes()); }
+      catch (e) { setLoadErr(e.message || "Couldn't load from Notion"); setRecipes([]); }
     })();
   }, []);
 
@@ -973,16 +803,21 @@ function RecipeShelf() {
   const persist = async (next) => { setRecipes(next); await saveRecipes(next); };
 
   const handleSaved = async (recipe) => {
-    const next = [recipe, ...(recipes || [])];
-    await persist(next);
-    setShowImport(false);
-    setSelectedId(recipe.id);
+    try {
+      const saved = await saveRecipe(recipe);
+      setRecipes(rs => [saved, ...(rs || [])]);
+      setShowImport(false);
+      setSelectedId(saved.id);
+    } catch (e) { setLoadErr(e.message); }
   };
 
   const handleDelete = async (id) => {
-    await persist(recipes.filter(r => r.id !== id));
-    deletePhoto(id);
-    setSelectedId(null);
+    try {
+      await deleteRecipeApi(id);
+      setRecipes(rs => rs.filter(r => r.id !== id));
+      deletePhoto(id);
+      setSelectedId(null);
+    } catch (e) { setLoadErr(e.message); }
   };
 
   const handlePhotoChange = async (id, hasPhoto) => {
@@ -991,7 +826,9 @@ function RecipeShelf() {
   };
 
   const handleUpdate = async (id, patch) => {
-    await persist(recipes.map(r => r.id === id ? { ...r, ...patch } : r));
+    setRecipes(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r));
+    try { await saveRecipe({ id, ...patch }); }
+    catch (e) { setLoadErr("Couldn't sync to Notion: " + e.message); }
   };
 
   const handleBackup = () => {
@@ -1162,16 +999,8 @@ function RecipeShelf() {
               );
             })()}
 
-            <div style={{ marginTop: 36, paddingTop: 18, borderTop: `1px solid ${T.line}`, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <span className="rs-mono" style={{ fontSize: 11, color: T.inkSoft, textTransform: "uppercase", letterSpacing: 1 }}>your data</span>
-              <Btn variant="ghost" onClick={handleBackup}>Back up recipes</Btn>
-              <label style={{ padding: "10px 18px", borderRadius: 10, border: `1.5px solid ${T.line}`, color: T.ink, fontSize: 14, fontWeight: 600, cursor: "pointer", background: "transparent" }}>
-                Restore from backup
-                <input type="file" accept="application/json,.json"
-                  style={{ position: "absolute", width: 1, height: 1, opacity: 0, overflow: "hidden" }}
-                  onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; handleRestore(f); }} />
-              </label>
-              {restoreMsg && <span style={{ fontSize: 13, color: T.leaf, width: "100%" }}>{restoreMsg}</span>}
+            <div style={{ marginTop: 36, paddingTop: 18, borderTop: `1px solid ${T.line}`, fontSize: 12.5, color: T.inkSoft, textAlign: "center" }}>
+              Synced with Notion · changes save automatically{loadErr ? " · " + loadErr : ""}
             </div>
           </>
         )}
