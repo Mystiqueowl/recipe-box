@@ -1,0 +1,1189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Recipe Box">
+<meta name="theme-color" content="#CCD7C3">
+<title>The Recipe Box</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23CCD7C3'/%3E%3Ctext x='50' y='68' font-size='54' text-anchor='middle'%3E%F0%9F%8D%B2%3C/text%3E%3C/svg%3E">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>html,body{margin:0;padding:0;}</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+/* Storage shim: use the artifact storage if present, otherwise localStorage.
+   This is what lets the same code run both in preview and as a real website. */
+if (!window.storage) {
+  var LS = window.localStorage;
+  window.storage = {
+    get: function(key){ try { var v = LS.getItem(key); return Promise.resolve(v===null?null:{key:key,value:v}); } catch(e){ return Promise.resolve(null);} },
+    set: function(key,value){ try { LS.setItem(key,value); return Promise.resolve({key:key,value:value}); } catch(e){ return Promise.reject(e);} },
+    delete: function(key){ try { LS.removeItem(key); return Promise.resolve({key:key,deleted:true}); } catch(e){ return Promise.resolve(null);} },
+    list: function(prefix){ var keys=[]; for(var i=0;i<LS.length;i++){ var k=LS.key(i); if(!prefix||k.indexOf(prefix)===0) keys.push(k);} return Promise.resolve({keys:keys}); }
+  };
+}
+</script>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef } = React;
+
+/* ───────────────────────── design tokens ─────────────────────────
+   "The Recipe Box" — a card file on a herb-green kitchen counter.
+   Cream index cards, faint ruling, a tomato rubber-stamp, filing tabs.
+   Type: Zilla Slab (cookbook slab) + Courier Prime (typed cards).
+   Signature: index-card ruling + colored filing-tab category headers.
+   (Token keys are unchanged so all existing references just re-skin.)
+─────────────────────────────────────────────────────────────────── */
+const T = {
+  paper: "#CCD7C3",   // sage kitchen wall (kept)
+  card: "#FBFAF3",    // soft ivory card
+  ink: "#473F4A",     // soft deep aubergine-grey (legible)
+  inkSoft: "#867E88",  // muted
+  line: "#E4DECF",    // hairline
+  chili: "#E2876F",   // pastel coral accent
+  turmeric: "#EBD27A", // butter
+  leaf: "#8FAE7C",    // soft green
+  clay: "#BE9A86",    // dusty taupe
+};
+
+const MEAL_COLORS = {
+  breakfast: "#EBD27A", // butter yellow
+  lunch: "#F0B58C",     // peach
+  dinner: "#B8A6D6",    // lavender
+  snack: "#A7C796",     // pistachio
+  dessert: "#EAA8BE",   // pink
+  drink: "#9DC3D4",     // sky blue
+};
+
+const FONT_CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@500;600;700&family=Courier+Prime:wght@400;700&display=swap');
+* { box-sizing: border-box; }
+.rs-root { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.rs-display { font-family: 'Zilla Slab', Georgia, serif; letter-spacing: -0.01em; }
+.rs-mono { font-family: 'Courier Prime', ui-monospace, monospace; }
+.rs-chip:focus-visible, .rs-btn:focus-visible { outline: 2px solid ${T.chili}; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .rs-root * { transition: none !important; animation: none !important; } }
+.rs-card { transition: transform .14s ease, box-shadow .14s ease; }
+.rs-card:hover { transform: translateY(-3px) rotate(-0.4deg); box-shadow: 0 8px 20px rgba(46,51,40,.16); }
+.rs-fade { animation: rsfade .25s ease; }
+@keyframes rsfade { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: none; } }
+/* index-card ruling — subtle ambient horizontal lines */
+.rs-ruled { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 31px, ${T.line} 31px, ${T.line} 32px); }
+/* tomato rubber stamp */
+.rs-stamp {
+  display: inline-block; font-family: 'Courier Prime', monospace; font-weight: 700;
+  letter-spacing: 2px; text-transform: uppercase; font-size: 11px;
+  color: ${T.chili}; border: 2px solid ${T.chili}; border-radius: 6px;
+  padding: 5px 10px; transform: rotate(-3deg); opacity: .9;
+}
+`;
+
+/* faint kitchen-utensil doodles, tiled across the background */
+const DOODLE_STROKE = "#D6DFCC";
+const DOODLE_TILE = `<svg xmlns='http://www.w3.org/2000/svg' width='340' height='340' viewBox='0 0 340 340'>
+<g fill='none' stroke='${DOODLE_STROKE}' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'>
+<g transform='translate(60,75) rotate(-18)'><path d='M0,52 L0,28'/><path d='M0,28 C-15,16 -15,-10 0,-14 C15,-10 15,16 0,28'/><path d='M0,28 C-7,14 -7,-6 0,-12'/><path d='M0,28 C7,14 7,-6 0,-12'/><circle cx='0' cy='55' r='2.6'/></g>
+<g transform='translate(170,80)'><rect x='-13' y='-12' width='26' height='26' rx='5'/><path d='M13,-6 q12,3 0,16'/><path d='M-4,-18 q4,-5 0,-10'/><path d='M5,-18 q4,-5 0,-10'/></g>
+<g transform='translate(270,150) rotate(18)'><rect x='-34' y='-10' width='68' height='20' rx='10'/><path d='M-34,0 L-52,0'/><path d='M34,0 L52,0'/><circle cx='-55' cy='0' r='3'/><circle cx='55' cy='0' r='3'/></g>
+<g transform='translate(70,220) rotate(22)'><ellipse cx='0' cy='-28' rx='12' ry='16'/><path d='M0,-12 L0,42'/></g>
+<g transform='translate(175,255)'><path d='M-26,-10 L26,-10 L21,24 L-21,24 Z'/><path d='M-32,-10 L32,-10'/><path d='M0,-10 L0,-16'/><circle cx='0' cy='-18' r='2.6'/><path d='M-32,-4 q-7,0 -7,7'/><path d='M32,-4 q7,0 7,7'/></g>
+<g transform='translate(287,250)'><path d='M-14,2 L14,2 L10,26 L-10,26 Z'/><path d='M-16,2 C-16,-14 16,-14 16,2'/><path d='M0,-14 L0,-22'/><circle cx='0' cy='-24' r='2.4'/></g>
+</g></svg>`;
+const DOODLE_BG = `url("data:image/svg+xml,${encodeURIComponent(DOODLE_TILE)}")`;
+
+const STORAGE_KEY = "recipes-v1";
+const SEED_IDS_KEY = "seeded-ids-v1";
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+/* ─────────── starter recipes imported from Ritz's Notion (Recipes & meal) ─────────── */
+const SEED_RECIPES = [
+  {
+    id: "notion-kimchi-fried-rice", createdAt: Date.now(),
+    title: "Kimchi Fried Rice",
+    description: "Flavorful, satisfying, and fills the kitchen with wonderful aromatics.",
+    servings: 4, time_minutes: 20, cuisine: "Korean",
+    meal: ["lunch", "dinner"], flavor: "savory", veg: true,
+    ingredients: [
+      { amount: "3–4 cups", name: "cooked rice, preferably a day or two old" },
+      { amount: "3/4 cup", name: "kimchi" },
+      { amount: "1–2 tbsp", name: "gochujang" },
+      { amount: "1 bunch", name: "green onion, chopped" },
+      { amount: "4 servings", name: "protein of your choice — tofu, paneer, egg, etc." },
+      { amount: "1–2 tsp", name: "sesame oil, to finish" },
+    ],
+    steps: [
+      "Sauté the bottom half of the green onions until soft.",
+      "Add the protein, kimchi, and gochujang. Start with 1 tbsp gochujang — add more later if you want it spicier.",
+      "Add the rice and mix well. If it's too dry, add a little water.",
+      "Drizzle with 1–2 tsp sesame oil and garnish with the remaining green onions.",
+    ],
+    tags: ["easy", "one-pan", "leftover-rice"], hasPhoto: false,
+  },
+  {
+    id: "notion-dates-laddo", createdAt: Date.now() - 1,
+    title: "Dates Laddo",
+    description: "Naturally sweet laddos with roasted nuts, seeds, and warming spices.",
+    servings: 8, time_minutes: 25, cuisine: "Indian",
+    meal: ["dessert", "snack"], flavor: "sweet", veg: true,
+    ingredients: [
+      { amount: "2 cups", name: "dates, pitted" },
+      { amount: "very little", name: "oil, for roasting dates" },
+      { amount: "1 cup", name: "mixed nuts" },
+      { amount: "1/2 cup", name: "seeds — pumpkin, sunflower, watermelon" },
+      { amount: "1/2 tsp", name: "dry ginger powder" },
+      { amount: "1/2 tsp", name: "fennel seed powder" },
+    ],
+    steps: [
+      "Roast the dates with very little oil so they don't stick to the pan.",
+      "Roast the nuts separately until fragrant, then roughly chop.",
+      "Mix the dates with nuts, seeds, dry ginger powder, and fennel seed powder.",
+      "While the mixture is still warm, press and roll into laddos.",
+    ],
+    tags: ["no-bake", "healthy", "festive"], hasPhoto: false,
+  },
+  {
+    id: "notion-frittata-muffins", createdAt: Date.now() - 2,
+    title: "Frittata Muffins",
+    description: "Savory chickpea-flour muffins packed with spinach, herbs, and vegan feta.",
+    servings: 12, time_minutes: 45, cuisine: "Mediterranean",
+    meal: ["breakfast", "snack"], flavor: "savory", veg: true,
+    ingredients: [
+      { amount: "2 cups", name: "chickpea flour (chana lot)" },
+      { amount: "1 cup", name: "tightly packed chopped spinach" },
+      { amount: "2 tbsp", name: "nutritional yeast" },
+      { amount: "2 tbsp", name: "fresh lemon juice" },
+      { amount: "1 tbsp", name: "Italian seasoning, plus more for topping" },
+      { amount: "1 tbsp", name: "sunflower or avocado oil" },
+      { amount: "1 tsp", name: "sea salt" },
+      { amount: "1 tsp", name: "baking powder" },
+      { amount: "1/2 tsp", name: "baking soda" },
+      { amount: "1/4 tsp", name: "asafoetida (hing)" },
+      { amount: "2 cups", name: "water" },
+      { amount: "1 cup", name: "finely chopped red bell pepper" },
+      { amount: "1/2 cup", name: "chopped fresh herbs — basil, parsley, or dill" },
+      { amount: "1/2 cup", name: "chopped green olives, sun-dried tomatoes, and/or jalapeños" },
+      { amount: "3/4 cup", name: "crumbled vegan feta" },
+      { amount: "as needed", name: "oil or cooking spray for the muffin tin" },
+    ],
+    steps: [
+      "Preheat the oven to 375°F (190°C). Lightly coat 12 cups of a muffin tin with oil.",
+      "Whisk together chickpea flour, spinach, nutritional yeast, lemon juice, Italian seasoning, oil, salt, baking powder, baking soda, and asafoetida. Add 2 cups water and whisk until completely smooth.",
+      "Fold in the bell pepper, herbs, olive mixture, and 1/2 cup of the feta.",
+      "Scoop about 1/4 cup batter into each muffin cup, stirring between scoops so the vegetables stay distributed. Top with remaining feta and a pinch of Italian seasoning.",
+      "Bake 25–30 minutes until set. Cool 5 minutes in the pan, then transfer to a rack. Serve warm with muhammara or your favorite dip.",
+    ],
+    tags: ["vegan", "meal-prep", "baking", "high-protein"], hasPhoto: false,
+  },
+  {
+    id: "notion-paan-tres-leches", createdAt: Date.now() - 3,
+    title: "Paan Tres Leches Cake",
+    description: "An Indian-fusion tres leches soaked in paan-gulkand milk with rose whipped cream.",
+    servings: 9, time_minutes: 90, cuisine: "Indian fusion",
+    meal: ["dessert"], flavor: "sweet", veg: true,
+    ingredients: [
+      { amount: "1/2 cup", name: "flavorless oil (cake)" },
+      { amount: "1/2 cup", name: "granulated sugar (cake)" },
+      { amount: "1 cup", name: "whole milk plain yogurt (cake)" },
+      { amount: "1/2 tsp", name: "baking soda (cake)" },
+      { amount: "1/2 tsp", name: "vanilla extract (cake)" },
+      { amount: "1.5 cups", name: "all purpose flour (cake)" },
+      { amount: "1 1/4 tsp", name: "baking powder (cake)" },
+      { amount: "1/4 tsp", name: "salt (cake)" },
+      { amount: "1 1/4 cups", name: "evaporated milk (milk mix)" },
+      { amount: "4 large", name: "paan leaves (milk mix)" },
+      { amount: "1 tsp", name: "fennel seeds (milk mix)" },
+      { amount: "1/4 cup", name: "gulkand (milk mix)" },
+      { amount: "1/2 cup", name: "sweetened condensed milk (milk mix)" },
+      { amount: "1/2 cup", name: "heavy cream (milk mix)" },
+      { amount: "1.5 cups", name: "heavy whipping cream (topping)" },
+      { amount: "2 tbsp", name: "powdered sugar (topping)" },
+      { amount: "1 tsp", name: "rose water (topping)" },
+    ],
+    steps: [
+      "Preheat oven to 350°F. Grease an 8-inch square pan. Whisk oil and sugar until the sugar dissolves.",
+      "Stir baking soda into the yogurt, rest 2 minutes until it bubbles, then mix into the oil-sugar along with vanilla.",
+      "Sift in flour, baking powder, and salt; fold gently without overmixing. Bake 25–30 minutes until a toothpick comes out clean. Cool in the pan.",
+      "Blend evaporated milk with paan leaves; add fennel seeds and gulkand, blend again, then strain. Stir in condensed milk and heavy cream.",
+      "Poke holes all over the cooled cake. Reserve 300 ml of paan milk for serving; slowly pour the rest over the cake in parts, letting it absorb. Cover and refrigerate at least 6 hours or overnight.",
+      "Whip cream with powdered sugar and rose water to stiff peaks. Top the cake, decorate with candied fennel, slice into 9 squares, and serve with the reserved paan milk poured around.",
+    ],
+    tags: ["baking", "paan", "festive", "make-ahead"], hasPhoto: false,
+  },
+  {
+    id: "notion-cilantro-dressing", createdAt: Date.now() - 4,
+    title: "Creamy Cilantro Dressing",
+    description: "A 5-minute blender dressing — cashew-creamy with lime and a hint of cayenne.",
+    servings: 6, time_minutes: 5, cuisine: "Mexican-ish",
+    meal: ["lunch", "dinner"], flavor: "savory", veg: true,
+    ingredients: [
+      { amount: "1/4 cup", name: "olive oil" },
+      { amount: "1/4 cup", name: "water" },
+      { amount: "1/2 cup", name: "cashews (boil 5–10 min if you don't have a high-speed blender)" },
+      { amount: "1 tbsp", name: "lime juice" },
+      { amount: "1 cup", name: "cilantro" },
+      { amount: "1/2 tsp", name: "salt" },
+      { amount: "1/4 tsp", name: "pepper" },
+      { amount: "pinch", name: "cayenne pepper" },
+    ],
+    steps: [
+      "Blend all the ingredients together until completely smooth.",
+      "Store in an airtight jar in the fridge for up to 5 days. Pairs perfectly with a summer corn and avocado salad.",
+    ],
+    tags: ["dressing", "no-cook", "5-minute"], hasPhoto: false,
+  },
+  {
+    id: "ig-creamy-miso-peanut-ramen", createdAt: Date.now() - 5,
+    title: "Creamy Miso Peanut Vegetarian Ramen",
+    description: "A cozy, creamy vegetarian ramen made with whatever veggies you have at home.",
+    servings: 2, time_minutes: 25, cuisine: "Japanese-inspired",
+    meal: ["lunch", "dinner"], flavor: "savory", veg: true,
+    ingredients: [
+      { amount: "1 tbsp", name: "sesame oil" },
+      { amount: "1–2 tsp", name: "chili crunch (plus more for topping)" },
+      { amount: "1 tsp", name: "grated ginger" },
+      { amount: "1 tbsp", name: "miso paste" },
+      { amount: "1 tbsp", name: "peanut butter" },
+      { amount: "1 cup", name: "coconut milk" },
+      { amount: "2 cups", name: "water" },
+      { amount: "2 tsp", name: "brown sugar (or date sugar)" },
+      { amount: "1 tbsp", name: "soy sauce" },
+      { amount: "", name: "ramen or udon noodles" },
+      { amount: "1 block", name: "extra-firm tofu, cubed" },
+      { amount: "", name: "bok choy, broccoli, mushrooms, corn (or whatever veggies you have)" },
+      { amount: "", name: "lemon + cilantro, for topping" },
+    ],
+    steps: [
+      "Make the broth: heat sesame oil, then add chili crunch and ginger and sauté 1 minute. Stir in miso and peanut butter for another minute. Add coconut milk, water, soy sauce, and sugar, and simmer 3–5 minutes.",
+      "Cook the noodles according to package instructions. Add bok choy in the last 2 minutes if using.",
+      "Prep toppings: sauté the veggies, and air fry the tofu at 375°F for 10–12 minutes until golden.",
+      "Assemble: add noodles to the broth and top with tofu, veggies, corn, a squeeze of lemon, cilantro, and extra chili crunch.",
+    ],
+    tags: ["one-pot", "tofu", "fridge-clean-out", "comfort-food"], hasPhoto: false,
+  },
+];
+
+/* ───────────────────────── storage helpers ───────────────────────── */
+async function loadRecipes() {
+  try {
+    const r = await window.storage.get(STORAGE_KEY);
+    return r ? JSON.parse(r.value) : [];
+  } catch {
+    return [];
+  }
+}
+async function saveRecipes(list) {
+  try {
+    await window.storage.set(STORAGE_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.error("save failed", e);
+  }
+}
+async function loadPhoto(id) {
+  try {
+    const r = await window.storage.get("photo:" + id);
+    return r ? r.value : null;
+  } catch {
+    return null;
+  }
+}
+async function savePhoto(id, dataUrl) {
+  try {
+    await window.storage.set("photo:" + id, dataUrl);
+  } catch (e) {
+    console.error("photo save failed", e);
+  }
+}
+async function deletePhoto(id) {
+  try {
+    await window.storage.delete("photo:" + id);
+  } catch {}
+}
+
+/* ───────────────────────── claude import ───────────────────────── */
+const EXTRACT_PROMPT = `Extract the recipe from the provided content (it may be a screenshot of an Instagram post, a PDF, or pasted text).
+Respond ONLY with valid JSON, no markdown fences, no extra text. Schema:
+{
+ "title": string,
+ "description": string (one short appetizing line),
+ "servings": number,
+ "time_minutes": number or null,
+ "cuisine": string (e.g. "Gujarati", "Italian"),
+ "meal": array of strings, choose all that apply from exactly: "breakfast","lunch","dinner","snack","dessert","drink",
+ "flavor": "sweet" | "savory" | "both",
+ "veg": boolean (true if vegetarian),
+ "ingredients": [{"amount": string (e.g. "2 tbsp", "1 cup", "to taste"), "name": string}],
+ "steps": [string, ...] (clear numbered-style steps),
+ "tags": array of 3-6 short lowercase tags like "one-pot","no-bake","kid-friendly","street-food"
+}
+If amounts are missing, estimate sensibly. If the content contains no recipe, return {"error":"not_a_recipe"}.`;
+
+async function extractRecipe({ text, fileBase64, mediaType }) {
+  const content = [];
+  if (fileBase64) {
+    if (mediaType === "application/pdf") {
+      content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: fileBase64 } });
+    } else {
+      content.push({ type: "image", source: { type: "base64", media_type: mediaType, data: fileBase64 } });
+    }
+  }
+  content.push({ type: "text", text: EXTRACT_PROMPT + (text ? "\n\nCONTENT:\n" + text : "") });
+
+  let response;
+  try {
+    response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 2000,
+        messages: [{ role: "user", content }],
+      }),
+    });
+  } catch (e) {
+    throw new Error("The photo/PDF reader can't reach Claude from here. Use the 'Write it' tab to add this one by hand — that works offline.");
+  }
+
+  // Read raw text first; the proxy doesn't always return JSON.
+  const bodyText = await response.text();
+  let data;
+  try {
+    data = JSON.parse(bodyText);
+  } catch {
+    throw new Error("Reader error " + response.status + ": " + bodyText.slice(0, 200));
+  }
+
+  if (!response.ok || data.error) {
+    const msg = (data.error && (data.error.message || data.error.type)) || ("HTTP " + response.status);
+    throw new Error("Reader error: " + msg);
+  }
+
+  const raw = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+  if (!raw.trim()) throw new Error("The reader sent back an empty reply — try again in a moment.");
+  if (data.stop_reason === "max_tokens") throw new Error("That recipe is very long — try cropping the screenshot to just the recipe, or paste the text instead.");
+
+  const clean = raw.replace(/```json|```/g, "").trim();
+  const start = clean.indexOf("{"), end = clean.lastIndexOf("}");
+  if (start === -1 || end === -1) throw new Error("Couldn't find a recipe in that — try a clearer screenshot or paste the text.");
+  let parsed;
+  try {
+    parsed = JSON.parse(clean.slice(start, end + 1));
+  } catch {
+    throw new Error("Couldn't read the recipe cleanly — try a clearer screenshot or paste the text.");
+  }
+  if (parsed.error) throw new Error("That doesn't look like a recipe — try a clearer screenshot or paste the caption text.");
+  return parsed;
+}
+
+/* ───────────────────────── file utils ───────────────────────── */
+function readFileBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(",")[1]);
+    r.onerror = () => rej(new Error("Couldn't read the file"));
+    r.readAsDataURL(file);
+  });
+}
+function fileToDataUrl(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = () => rej(new Error("Couldn't read the file"));
+    r.readAsDataURL(file);
+  });
+}
+function loadImageFromFile(file) {
+  return new Promise((res, rej) => {
+    fileToDataUrl(file).then(dataUrl => {
+      const img = new Image();
+      img.onload = () => res(img);
+      img.onerror = () => rej(new Error("This image format isn't supported — try a JPG or PNG screenshot."));
+      img.src = dataUrl;
+    }).catch(rej);
+  });
+}
+// Resize + convert any image to JPEG before sending to the API.
+// Fixes huge phone screenshots (API rejects >5MB) and odd formats.
+async function imageForApi(file) {
+  const img = await loadImageFromFile(file);
+  const maxSide = 1400;
+  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(img.width * scale));
+  c.height = Math.max(1, Math.round(img.height * scale));
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  const dataUrl = c.toDataURL("image/jpeg", 0.82);
+  return { base64: dataUrl.split(",")[1], mediaType: "image/jpeg" };
+}
+async function compressImage(file, maxW = 480) {
+  const img = await loadImageFromFile(file);
+  const scale = Math.min(1, maxW / img.width);
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(img.width * scale));
+  c.height = Math.max(1, Math.round(img.height * scale));
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", 0.72);
+}
+
+/* ───────────────────────── small pieces ───────────────────────── */
+const Dot = ({ color, size = 10 }) => (
+  <span style={{ width: size, height: size, borderRadius: "50%", background: color, display: "inline-block", flexShrink: 0 }} />
+);
+
+const Chip = ({ active, onClick, children, color }) => (
+  <button
+    className="rs-chip"
+    onClick={onClick}
+    style={{
+      display: "inline-flex", alignItems: "center", gap: 7,
+      padding: "7px 14px", borderRadius: 999, cursor: "pointer",
+      border: `1.5px solid ${active ? T.ink : T.line}`,
+      background: active ? T.ink : T.card,
+      color: active ? T.paper : T.ink,
+      fontSize: 13.5, fontWeight: 500, whiteSpace: "nowrap",
+    }}
+  >
+    {color && <Dot color={color} />}
+    {children}
+  </button>
+);
+
+const Btn = ({ children, onClick, variant = "primary", disabled, style }) => {
+  const styles = {
+    primary: { background: T.chili, color: "#FFF8EE", border: "none" },
+    ghost: { background: "transparent", color: T.ink, border: `1.5px solid ${T.line}` },
+    danger: { background: "transparent", color: T.chili, border: `1.5px solid ${T.chili}55` },
+  }[variant];
+  return (
+    <button className="rs-btn" onClick={onClick} disabled={disabled}
+      style={{ ...styles, padding: "10px 18px", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: disabled ? "wait" : "pointer", opacity: disabled ? 0.6 : 1, ...style }}>
+      {children}
+    </button>
+  );
+};
+
+/* ───────────────────────── import modal ───────────────────────── */
+function ImportModal({ onClose, onSaved }) {
+  const [tab, setTab] = useState("file");
+  const [pasted, setPasted] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [manual, setManual] = useState({ title: "", ingredients: "", steps: "", meal: [], flavor: "savory", tags: "", link: "", veg: true });
+
+  const finish = async (data) => {
+    const recipe = {
+      id: uid(),
+      createdAt: Date.now(),
+      title: data.title || "Untitled recipe",
+      description: data.description || "",
+      servings: data.servings || 2,
+      time_minutes: data.time_minutes || null,
+      cuisine: data.cuisine || "",
+      meal: Array.isArray(data.meal) ? data.meal : [],
+      flavor: data.flavor || "savory",
+      veg: data.veg !== false,
+      ingredients: data.ingredients || [],
+      steps: data.steps || [],
+      tags: data.tags || [],
+      link: data.link || "",
+      hasPhoto: false,
+    };
+    await onSaved(recipe);
+  };
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setErr(""); setBusy(true);
+    try {
+      if (file.type === "application/pdf") {
+        if (file.size > 4 * 1024 * 1024) throw new Error("That PDF is over 4MB — try a smaller one, or screenshot the recipe page instead.");
+        const b64 = await readFileBase64(file);
+        const data = await extractRecipe({ fileBase64: b64, mediaType: "application/pdf" });
+        await finish(data);
+      } else if (file.type.startsWith("image/") || file.type === "") {
+        const { base64, mediaType } = await imageForApi(file);
+        const data = await extractRecipe({ fileBase64: base64, mediaType });
+        await finish(data);
+      } else {
+        throw new Error("Use an image screenshot or a PDF.");
+      }
+    } catch (e) {
+      console.error("import failed:", e);
+      setErr((e && e.message) || "Import failed — try again.");
+      setBusy(false);
+    }
+  };
+
+  const handlePaste = async () => {
+    if (!pasted.trim()) { setErr("Paste the recipe text first."); return; }
+    setErr(""); setBusy(true);
+    try {
+      const data = await extractRecipe({ text: pasted });
+      await finish(data);
+    } catch (e) {
+      setErr(e.message || "Import failed — try again.");
+      setBusy(false);
+    }
+  };
+
+  const handleManual = async () => {
+    if (!manual.title.trim()) { setErr("Give it a name."); return; }
+    setErr(""); setBusy(true);
+    try {
+      const blob = (manual.title + " " + manual.ingredients + " " + manual.steps).toLowerCase();
+      // light keyword-based auto-tags — no network needed
+      const guesses = [
+        ["no-bake", /no[\s-]?bake/], ["baking", /\b(bake|oven|preheat|baking)\b/],
+        ["one-pot", /one[\s-]?pot|one[\s-]?pan/], ["quick", /\b(quick|5[\s-]?min|10[\s-]?min|easy)\b/],
+        ["dressing", /\b(dressing|vinaigrette)\b/], ["sauce", /\bsauce\b/],
+        ["drink", /\b(smoothie|juice|latte|shake|chai|coffee)\b/],
+        ["high-protein", /\b(protein|paneer|tofu|chicken|egg|lentil|dal|chickpea)\b/],
+        ["healthy", /\b(healthy|salad|wholesome)\b/],
+      ];
+      const autoTags = guesses.filter(([, re]) => re.test(blob)).map(([t]) => t);
+      const customTags = manual.tags.split(",").map(t => t.trim().toLowerCase()).filter(Boolean);
+      const tags = [...new Set([...customTags, ...autoTags])].slice(0, 8);
+
+      await finish({
+        title: manual.title.trim(),
+        meal: manual.meal,
+        flavor: manual.flavor,
+        veg: manual.veg,
+        link: manual.link.trim(),
+        tags,
+        ingredients: manual.ingredients.split("\n").map(l => l.trim()).filter(Boolean).map(l => {
+          // try to split a leading quantity from the name, e.g. "2 cups flour"
+          const m = l.match(/^([\d¼½¾⅓⅔\/.\s]+(?:cups?|tbsp|tsp|g|kg|ml|l|oz|lb|cloves?|pinch|cup|tablespoons?|teaspoons?)?\b)?\s*(.*)$/i);
+          return m && m[2] ? { amount: (m[1] || "").trim(), name: m[2].trim() } : { amount: "", name: l };
+        }),
+        steps: manual.steps.split("\n").map(s => s.trim()).filter(Boolean),
+      });
+    } catch (e) {
+      setErr((e && e.message) || "Couldn't save — try again.");
+      setBusy(false);
+    }
+  };
+
+  const tabBtn = (id, label) => (
+    <button className="rs-chip" onClick={() => { setTab(id); setErr(""); }}
+      style={{
+        padding: "9px 14px", border: "none", borderBottom: `2.5px solid ${tab === id ? T.chili : "transparent"}`,
+        background: "transparent", color: tab === id ? T.ink : T.inkSoft, fontWeight: 600, fontSize: 14, cursor: "pointer",
+      }}>{label}</button>
+  );
+
+  const inputStyle = {
+    width: "100%", padding: "11px 12px", borderRadius: 10, border: `1.5px solid ${T.line}`,
+    background: "#FFFEFA", color: T.ink, fontSize: 14, resize: "vertical",
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(58,46,37,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 16 }}
+      onClick={busy ? undefined : onClose}>
+      <div className="rs-fade" onClick={e => e.stopPropagation()}
+        style={{ background: T.card, borderRadius: 18, width: "100%", maxWidth: 480, padding: 22, border: `1px solid ${T.line}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <h2 className="rs-display" style={{ margin: 0, fontSize: 22, color: T.ink }}>Add a recipe</h2>
+          {!busy && <button onClick={onClose} className="rs-btn" style={{ border: "none", background: "transparent", fontSize: 20, cursor: "pointer", color: T.inkSoft }}>✕</button>}
+        </div>
+        <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${T.line}`, marginBottom: 16 }}>
+          {tabBtn("file", "Screenshot / PDF")}{tabBtn("paste", "Paste text")}{tabBtn("manual", "Write it")}
+        </div>
+
+        {busy ? (
+          <div style={{ textAlign: "center", padding: "34px 0" }}>
+            <div className="rs-display" style={{ fontSize: 18, color: T.ink }}>Reading your recipe…</div>
+            <div style={{ color: T.inkSoft, fontSize: 13.5, marginTop: 8 }}>Extracting ingredients, steps & sorting it onto the right shelf</div>
+          </div>
+        ) : (
+          <>
+            {tab === "file" && (
+              <div>
+                <p style={{ color: T.inkSoft, fontSize: 13.5, marginTop: 0 }}>
+                  Screenshot an Instagram recipe (caption visible) or pick a PDF — everything gets extracted and tagged automatically.
+                </p>
+                <label style={{ display: "block", width: "100%", padding: "30px 12px", borderRadius: 12, border: `2px dashed ${T.clay}88`, background: "#FFF9EE", color: T.clay, fontSize: 14.5, fontWeight: 600, cursor: "pointer", textAlign: "center" }}>
+                  Choose a screenshot or PDF
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    style={{ position: "absolute", width: 1, height: 1, opacity: 0, overflow: "hidden" }}
+                    onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; handleFile(f); }}
+                  />
+                </label>
+              </div>
+            )}
+            {tab === "paste" && (
+              <div>
+                <textarea rows={7} style={inputStyle} placeholder="Paste the Instagram caption or any recipe text here…"
+                  value={pasted} onChange={e => setPasted(e.target.value)} />
+                <div style={{ marginTop: 12, textAlign: "right" }}><Btn onClick={handlePaste}>Extract & save</Btn></div>
+              </div>
+            )}
+            {tab === "manual" && (
+              <div style={{ display: "grid", gap: 10 }}>
+                <input style={inputStyle} placeholder="Recipe name" value={manual.title}
+                  onChange={e => setManual({ ...manual, title: e.target.value })} />
+                <textarea rows={4} style={inputStyle} placeholder={"Ingredients — one per line\n2 cups besan\n1 tsp haldi"}
+                  value={manual.ingredients} onChange={e => setManual({ ...manual, ingredients: e.target.value })} />
+                <textarea rows={4} style={inputStyle} placeholder={"Steps — one per line"}
+                  value={manual.steps} onChange={e => setManual({ ...manual, steps: e.target.value })} />
+
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 2 }}>Meal (tap any that fit)</div>
+                <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                  {Object.keys(MEAL_COLORS).map(m => {
+                    const on = manual.meal.includes(m);
+                    return (
+                      <Chip key={m} color={MEAL_COLORS[m]} active={on}
+                        onClick={() => setManual({ ...manual, meal: on ? manual.meal.filter(x => x !== m) : [...manual.meal, m] })}>
+                        {m}
+                      </Chip>
+                    );
+                  })}
+                </div>
+
+                <input style={inputStyle} placeholder="Your tags, comma-separated — e.g. quick, kids, jain, festive"
+                  value={manual.tags} onChange={e => setManual({ ...manual, tags: e.target.value })} />
+                <input style={inputStyle} placeholder="Link to original recipe or video (optional)"
+                  value={manual.link} onChange={e => setManual({ ...manual, link: e.target.value })} />
+
+                <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
+                  <Chip active={manual.flavor === "savory"} onClick={() => setManual({ ...manual, flavor: "savory" })}>savory</Chip>
+                  <Chip active={manual.flavor === "sweet"} onClick={() => setManual({ ...manual, flavor: "sweet" })}>sweet</Chip>
+                </div>
+
+                <div style={{ textAlign: "right" }}><Btn onClick={handleManual}>Save recipe</Btn></div>
+              </div>
+            )}
+            {err && <div style={{ marginTop: 12, color: T.chili, fontSize: 13.5 }}>{err}</div>}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ───────────────────────── quantity scaling ───────────────────────── */
+const UNICODE_FRAC = { "¼": 0.25, "½": 0.5, "¾": 0.75, "⅓": 1 / 3, "⅔": 2 / 3, "⅛": 0.125, "⅜": 0.375, "⅝": 0.625, "⅞": 0.875 };
+function parseQty(tok) {
+  if (!tok) return null;
+  tok = tok.trim();
+  if (UNICODE_FRAC[tok] != null) return UNICODE_FRAC[tok];
+  let m = tok.match(/^(\d+)\s+(\d+)\/(\d+)$/); if (m) return +m[1] + (+m[2] / +m[3]); // 1 1/2
+  m = tok.match(/^(\d+)\/(\d+)$/); if (m) return +m[1] / +m[2];                       // 1/2
+  m = tok.match(/^(\d+)\s*([¼½¾⅓⅔⅛⅜⅝⅞])$/); if (m) return +m[1] + UNICODE_FRAC[m[2]]; // 1½
+  if (/^\d*\.?\d+$/.test(tok)) return parseFloat(tok);
+  return null;
+}
+function fmtQty(n) {
+  if (!isFinite(n) || n <= 0) return "0";
+  const whole = Math.floor(n + 1e-9), frac = n - whole;
+  const opts = [[0, ""], [0.25, "¼"], [1 / 3, "⅓"], [0.5, "½"], [2 / 3, "⅔"], [0.75, "¾"]];
+  let best = opts[0], bd = Math.abs(frac);
+  for (const o of opts) { const d = Math.abs(frac - o[0]); if (d < bd) { bd = d; best = o; } }
+  if (bd < 0.06) {
+    const w = whole > 0 ? String(whole) : "";
+    if (best[1]) return (w ? w + " " : "") + best[1];
+    return w || "0";
+  }
+  return String(Math.round(n * 100) / 100);
+}
+const QTY_RE = "[\\d.\\/\\s¼½¾⅓⅔⅛⅜⅝⅞]+";
+function scaleAmount(amount, factor) {
+  if (!amount || factor === 1) return amount;
+  const spaced = (rest) => (rest && !/^\s/.test(rest) ? " " + rest : rest);
+  let m = amount.match(new RegExp("^(\\s*)(" + QTY_RE + ")\\s*[–-]\\s*(" + QTY_RE + ")(.*)$"));
+  if (m) { const a = parseQty(m[2]), b = parseQty(m[3]); if (a != null && b != null) return m[1] + fmtQty(a * factor) + "–" + fmtQty(b * factor) + spaced(m[4]); }
+  m = amount.match(new RegExp("^(\\s*)(" + QTY_RE + ")(.*)$"));
+  if (m) { const q = parseQty(m[2].trim()); if (q != null) return m[1] + fmtQty(q * factor) + spaced(m[3]); }
+  return amount; // "to taste", "pinch", "" — leave as-is
+}
+
+/* ───────────────────────── recipe detail ───────────────────────── */
+function Detail({ recipe, onBack, onDelete, onPhotoChange, onUpdate }) {
+  const [photo, setPhoto] = useState(null);
+  const [checked, setChecked] = useState({});
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [servings, setServings] = useState(recipe.servings || 1);
+  const [note, setNote] = useState(recipe.notes || "");
+  const [link, setLink] = useState(recipe.link || "");
+  const linkHref = link && (/^https?:\/\//i.test(link) ? link : "https://" + link);
+  const factor = (recipe.servings && servings) ? servings / recipe.servings : 1;
+
+  useEffect(() => {
+    let live = true;
+    if (recipe.hasPhoto) loadPhoto(recipe.id).then(p => live && setPhoto(p));
+    return () => { live = false; };
+  }, [recipe.id, recipe.hasPhoto]);
+
+  const addPhoto = async (file) => {
+    if (!file) return;
+    try {
+      const dataUrl = await compressImage(file);
+      await savePhoto(recipe.id, dataUrl);
+      setPhoto(dataUrl);
+      onPhotoChange(recipe.id, true);
+    } catch (e) { console.error(e); }
+  };
+
+  return (
+    <div className="rs-fade">
+      <button className="rs-btn" onClick={onBack}
+        style={{ border: "none", background: "transparent", color: T.clay, fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, marginBottom: 14 }}>
+        ← All recipes
+      </button>
+
+      {photo && <img src={photo} alt={recipe.title} style={{ width: "100%", maxHeight: 260, objectFit: "cover", borderRadius: 14, marginBottom: 16, border: `1px solid ${T.line}` }} />}
+
+
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 8 }}>
+        <h1 className="rs-display" style={{ fontSize: 32, fontWeight: 700, margin: 0, color: T.ink, lineHeight: 1.1, display: "inline-block", borderBottom: `3px solid ${T.chili}`, paddingBottom: 4 }}>{recipe.title}</h1>
+        <button className="rs-btn" onClick={() => onUpdate(recipe.id, { favorite: !recipe.favorite })}
+          title={recipe.favorite ? "Remove from favorites" : "Add to favorites"}
+          style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 26, lineHeight: 1, color: recipe.favorite ? T.turmeric : T.inkSoft, padding: 0, marginTop: 2 }}>
+          {recipe.favorite ? "★" : "☆"}
+        </button>
+      </div>
+      {recipe.description && <p style={{ color: T.inkSoft, margin: "0 0 12px", fontSize: 15, fontStyle: "italic" }}>{recipe.description}</p>}
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14, alignItems: "center" }}>
+        {recipe.meal.map(m => (
+          <span key={m} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: T.ink, background: "#FFF", border: `1px solid ${T.line}`, padding: "4px 10px", borderRadius: 999 }}>
+            <Dot color={MEAL_COLORS[m] || T.clay} size={8} />{m}
+          </span>
+        ))}
+        <span style={{ fontSize: 12.5, color: T.inkSoft }}>
+          {recipe.flavor}{recipe.cuisine ? ` · ${recipe.cuisine}` : ""}
+          {recipe.time_minutes ? ` · ${recipe.time_minutes} min` : ""}
+        </span>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18, background: T.card, border: `1px solid ${T.line}`, borderRadius: 10, padding: "8px 14px", width: "fit-content" }}>
+        <span className="rs-mono" style={{ fontSize: 12, color: T.inkSoft, textTransform: "uppercase", letterSpacing: 1 }}>serves</span>
+        <button className="rs-btn" onClick={() => setServings(s => Math.max(1, s - 1))}
+          style={{ border: `1.5px solid ${T.line}`, background: T.card, color: T.ink, width: 30, height: 30, borderRadius: 8, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>−</button>
+        <span className="rs-display" style={{ fontSize: 18, fontWeight: 700, minWidth: 22, textAlign: "center" }}>{servings}</span>
+        <button className="rs-btn" onClick={() => setServings(s => Math.min(99, s + 1))}
+          style={{ border: `1.5px solid ${T.line}`, background: T.card, color: T.ink, width: 30, height: 30, borderRadius: 8, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>+</button>
+        {factor !== 1 && (
+          <button className="rs-btn" onClick={() => setServings(recipe.servings)}
+            style={{ border: "none", background: "transparent", color: T.chili, fontSize: 12.5, cursor: "pointer" }}>reset</button>
+        )}
+      </div>
+
+      <div className="rs-ruled" style={{ background: `${T.card}`, border: `1px solid ${T.line}`, borderRadius: "4px 4px 12px 12px", borderTop: `4px solid ${T.chili}`, padding: "16px 18px", marginBottom: 16 }}>
+        <h2 className="rs-display" style={{ fontSize: 13, margin: "0 0 10px", color: T.chili, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700 }}>Ingredients</h2>
+        {recipe.ingredients.map((ing, i) => (
+          <label key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "5px 0", cursor: "pointer", opacity: checked[i] ? 0.45 : 1, textDecoration: checked[i] ? "line-through" : "none" }}>
+            <input type="checkbox" checked={!!checked[i]} onChange={() => setChecked({ ...checked, [i]: !checked[i] })} style={{ accentColor: T.chili }} />
+            <span className="rs-mono" style={{ fontSize: 13, color: T.clay, minWidth: 72 }}>{scaleAmount(ing.amount, factor)}</span>
+            <span style={{ fontSize: 14.5, color: T.ink }}>{ing.name}</span>
+          </label>
+        ))}
+      </div>
+
+      <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: "4px 4px 12px 12px", borderTop: `4px solid ${T.leaf}`, padding: "16px 18px", marginBottom: 18 }}>
+        <h2 className="rs-display" style={{ fontSize: 13, margin: "0 0 12px", color: T.leaf, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700 }}>Method</h2>
+        {recipe.steps.map((s, i) => (
+          <div key={i} style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+            <span className="rs-mono" style={{ color: T.chili, fontSize: 13, fontWeight: 700, paddingTop: 2 }}>{String(i + 1).padStart(2, "0")}</span>
+            <p style={{ margin: 0, fontSize: 14.5, color: T.ink, lineHeight: 1.55 }}>{s}</p>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: "4px 4px 12px 12px", borderTop: `4px solid ${T.turmeric}`, padding: "16px 18px", marginBottom: 18 }}>
+        <h2 className="rs-display" style={{ fontSize: 13, margin: "0 0 10px", color: "#C09A2E", textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700 }}>My notes</h2>
+        <textarea
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          onBlur={() => { if (note !== (recipe.notes || "")) onUpdate(recipe.id, { notes: note }); }}
+          placeholder="Tweaks, swaps, what worked, what you'd change next time…"
+          rows={3}
+          style={{ width: "100%", border: "none", background: "transparent", color: T.ink, fontSize: 14.5, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit", outline: "none" }}
+        />
+      </div>
+
+      <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: "4px 4px 12px 12px", borderTop: `4px solid ${MEAL_COLORS.drink}`, padding: "16px 18px", marginBottom: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <h2 className="rs-display" style={{ fontSize: 13, margin: 0, color: "#5E8E97", textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700 }}>Link</h2>
+          {linkHref && <a href={linkHref} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, fontWeight: 700, color: T.chili, textDecoration: "none" }}>Open original ↗</a>}
+        </div>
+        <input
+          value={link}
+          onChange={e => setLink(e.target.value)}
+          onBlur={() => { if (link !== (recipe.link || "")) onUpdate(recipe.id, { link: link.trim() }); }}
+          placeholder="Paste a link to the original recipe or video…"
+          style={{ width: "100%", border: "none", background: "transparent", color: T.ink, fontSize: 14, outline: "none" }}
+        />
+      </div>
+
+      {recipe.tags?.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 20 }}>
+          {recipe.tags.map(t => <span key={t} style={{ fontSize: 12, color: T.inkSoft, background: "#EFE9DA", padding: "3px 10px", borderRadius: 999 }}>#{t}</span>)}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <label style={{ padding: "10px 18px", borderRadius: 10, border: `1.5px solid ${T.line}`, color: T.ink, fontSize: 14, fontWeight: 600, cursor: "pointer", background: "transparent" }}>
+          {photo ? "Change photo" : "Add a photo"}
+          <input
+            type="file" accept="image/*"
+            style={{ position: "absolute", width: 1, height: 1, opacity: 0, overflow: "hidden" }}
+            onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; addPhoto(f); }}
+          />
+        </label>
+        <Btn variant="danger" onClick={() => {
+          if (confirmDelete) onDelete(recipe.id);
+          else { setConfirmDelete(true); setTimeout(() => setConfirmDelete(false), 3000); }
+        }}>
+          {confirmDelete ? "Tap again to delete" : "Delete"}
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+/* ───────────────────────── shopping list ───────────────────────── */
+const SHOP_KEY = "shopping-v1";
+function ShoppingList({ recipes, onClose }) {
+  const [picked, setPicked] = useState({});   // recipeId -> true
+  const [ticked, setTicked] = useState({});   // ingredient key -> true
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try { const r = await window.storage.get(SHOP_KEY); if (r) { const d = JSON.parse(r.value); setPicked(d.picked || {}); setTicked(d.ticked || {}); } } catch {}
+      setLoaded(true);
+    })();
+  }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    window.storage.set(SHOP_KEY, JSON.stringify({ picked, ticked })).catch(() => {});
+  }, [picked, ticked, loaded]);
+
+  // combine ingredients across picked recipes, grouped by name
+  const combined = {};
+  recipes.forEach(r => {
+    if (!picked[r.id]) return;
+    r.ingredients.forEach(ing => {
+      const key = ing.name.trim().toLowerCase();
+      if (!key) return;
+      if (!combined[key]) combined[key] = { name: ing.name.trim(), amounts: [] };
+      if (ing.amount && ing.amount.trim()) combined[key].amounts.push(ing.amount.trim());
+    });
+  });
+  const items = Object.entries(combined).sort((a, b) => a[1].name.localeCompare(b[1].name));
+  const pickedCount = Object.values(picked).filter(Boolean).length;
+
+  const inputStyle = { width: "100%", padding: "11px 12px", borderRadius: 10, border: `1.5px solid ${T.line}`, background: "#FFFEFA", color: T.ink, fontSize: 14 };
+
+  return (
+    <div className="rs-fade">
+      <button className="rs-btn" onClick={onClose}
+        style={{ border: "none", background: "transparent", color: T.clay, fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, marginBottom: 14 }}>
+        ← Back to recipes
+      </button>
+      <h1 className="rs-display" style={{ fontSize: 30, fontWeight: 700, margin: "0 0 4px", color: T.ink, display: "inline-block", borderBottom: `3px solid ${T.chili}`, paddingBottom: 4 }}>Shopping list</h1>
+      <p style={{ color: T.inkSoft, fontSize: 14, margin: "10px 0 16px" }}>Pick the recipes you're cooking — their ingredients combine into one list you can tick off at the shop.</p>
+
+      <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px", marginBottom: 18 }}>
+        <div className="rs-mono" style={{ fontSize: 11, color: T.inkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Recipes ({pickedCount})</div>
+        <div style={{ display: "grid", gap: 4, maxHeight: 220, overflowY: "auto" }}>
+          {recipes.map(r => (
+            <label key={r.id} style={{ display: "flex", gap: 9, alignItems: "center", padding: "5px 0", cursor: "pointer" }}>
+              <input type="checkbox" checked={!!picked[r.id]} onChange={() => setPicked(p => ({ ...p, [r.id]: !p[r.id] }))} style={{ accentColor: T.chili }} />
+              <span style={{ fontSize: 14, color: T.ink }}>{r.title}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {items.length > 0 && (
+        <div className="rs-ruled" style={{ background: T.card, border: `1px solid ${T.line}`, borderTop: `4px solid ${T.leaf}`, borderRadius: "4px 4px 12px 12px", padding: "16px 18px", marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <h2 className="rs-display" style={{ fontSize: 13, margin: 0, color: T.leaf, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700 }}>To buy</h2>
+            <button className="rs-btn" onClick={() => setTicked({})} style={{ border: "none", background: "transparent", color: T.chili, fontSize: 12.5, cursor: "pointer" }}>clear ticks</button>
+          </div>
+          {items.map(([key, v]) => (
+            <label key={key} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "5px 0", cursor: "pointer", opacity: ticked[key] ? 0.4 : 1, textDecoration: ticked[key] ? "line-through" : "none" }}>
+              <input type="checkbox" checked={!!ticked[key]} onChange={() => setTicked(t => ({ ...t, [key]: !t[key] }))} style={{ accentColor: T.chili }} />
+              <span style={{ fontSize: 14.5, color: T.ink }}>{v.name}</span>
+              {v.amounts.length > 0 && <span className="rs-mono" style={{ fontSize: 12, color: T.inkSoft }}>{v.amounts.join(" + ")}</span>}
+            </label>
+          ))}
+        </div>
+      )}
+      {pickedCount === 0 && <p style={{ color: T.inkSoft, fontSize: 14, textAlign: "center", padding: "20px 0" }}>No recipes picked yet.</p>}
+    </div>
+  );
+}
+
+/* ───────────────────────── main app ───────────────────────── */
+function RecipeShelf() {
+  const [recipes, setRecipes] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
+  const [mealFilter, setMealFilter] = useState(null);
+  const [flavorFilter, setFlavorFilter] = useState(null);
+  const [tagFilter, setTagFilter] = useState(null);
+  const [favFilter, setFavFilter] = useState(false);
+  const [arrange, setArrange] = useState("grouped");
+  const [query, setQuery] = useState("");
+  const [showImport, setShowImport] = useState(false);
+  const [showShopping, setShowShopping] = useState(false);
+  const [restoreMsg, setRestoreMsg] = useState("");
+  const [thumbs, setThumbs] = useState({});
+
+  useEffect(() => {
+    (async () => {
+      const existing = await loadRecipes();
+      const have = new Set(existing.map(r => r.id));
+
+      let seededIds = [];
+      try {
+        const r = await window.storage.get(SEED_IDS_KEY);
+        if (r) seededIds = JSON.parse(r.value);
+      } catch {}
+      const seededSet = new Set(seededIds);
+      // migration + safety: any seed already on the shelf counts as injected
+      SEED_RECIPES.forEach(s => { if (have.has(s.id)) seededSet.add(s.id); });
+
+      // a seed is "new" only if it's never been injected and isn't already present
+      const fresh = SEED_RECIPES.filter(s => !seededSet.has(s.id));
+      fresh.forEach(s => seededSet.add(s.id));
+
+      const next = fresh.length ? [...fresh, ...existing] : existing;
+      if (fresh.length) await saveRecipes(next);
+      try { await window.storage.set(SEED_IDS_KEY, JSON.stringify([...seededSet])); } catch {}
+      setRecipes(next);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!recipes) return;
+    recipes.filter(r => r.hasPhoto && !(r.id in thumbs)).slice(0, 12).forEach(r => {
+      loadPhoto(r.id).then(p => setThumbs(t => ({ ...t, [r.id]: p })));
+    });
+  }, [recipes]); // eslint-disable-line
+
+  const persist = async (next) => { setRecipes(next); await saveRecipes(next); };
+
+  const handleSaved = async (recipe) => {
+    const next = [recipe, ...(recipes || [])];
+    await persist(next);
+    setShowImport(false);
+    setSelectedId(recipe.id);
+  };
+
+  const handleDelete = async (id) => {
+    await persist(recipes.filter(r => r.id !== id));
+    deletePhoto(id);
+    setSelectedId(null);
+  };
+
+  const handlePhotoChange = async (id, hasPhoto) => {
+    await persist(recipes.map(r => r.id === id ? { ...r, hasPhoto } : r));
+    loadPhoto(id).then(p => setThumbs(t => ({ ...t, [id]: p })));
+  };
+
+  const handleUpdate = async (id, patch) => {
+    await persist(recipes.map(r => r.id === id ? { ...r, ...patch } : r));
+  };
+
+  const handleBackup = () => {
+    const data = JSON.stringify({ app: "recipe-box", version: 1, exportedAt: new Date().toISOString(), recipes }, null, 2);
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `recipe-box-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleRestore = async (file) => {
+    setRestoreMsg("");
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const incoming = Array.isArray(data) ? data : data.recipes;
+      if (!Array.isArray(incoming)) throw new Error("not a backup");
+      const byId = {};
+      (recipes || []).forEach(r => { byId[r.id] = r; });
+      let added = 0;
+      incoming.forEach(r => {
+        if (r && r.id && r.title) { if (!byId[r.id]) added++; byId[r.id] = { ...byId[r.id], ...r }; }
+      });
+      const merged = Object.values(byId).sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0));
+      await persist(merged);
+      setRestoreMsg(`Restored — ${added} new recipe${added === 1 ? "" : "s"} added, the rest updated.`);
+    } catch {
+      setRestoreMsg("That file didn't look like a Recipe Box backup.");
+    }
+  };
+
+  const selected = recipes?.find(r => r.id === selectedId);
+  const allTags = [...new Set((recipes || []).flatMap(r => r.tags || []))].sort();
+  const q = query.trim().toLowerCase();
+  const filtered = (recipes || []).filter(r => {
+    if (mealFilter && !r.meal.includes(mealFilter)) return false;
+    if (favFilter && !r.favorite) return false;
+    if (flavorFilter && r.flavor !== flavorFilter && r.flavor !== "both") return false;
+    if (tagFilter && !(r.tags || []).includes(tagFilter)) return false;
+    if (q && !(
+      r.title.toLowerCase().includes(q) ||
+      r.ingredients.some(i => i.name.toLowerCase().includes(q)) ||
+      (r.tags || []).some(t => t.includes(q)) ||
+      (r.cuisine || "").toLowerCase().includes(q)
+    )) return false;
+    return true;
+  });
+
+  return (
+    <div className="rs-root" style={{ minHeight: "100vh", backgroundColor: T.paper, backgroundImage: DOODLE_BG, backgroundSize: "340px 340px", color: T.ink }}>
+      <style>{FONT_CSS}</style>
+      <div style={{ maxWidth: 880, margin: "0 auto", padding: "26px 18px 60px" }}>
+
+        {selected ? (
+          <Detail recipe={selected} onBack={() => setSelectedId(null)} onDelete={handleDelete} onPhotoChange={handlePhotoChange} onUpdate={handleUpdate} />
+        ) : showShopping ? (
+          <ShoppingList recipes={recipes || []} onClose={() => setShowShopping(false)} />
+        ) : (
+          <>
+            <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 18, background: T.card, border: `1px solid ${T.line}`, borderLeft: `5px solid ${T.chili}`, borderRadius: 12, padding: "16px 18px", boxShadow: "0 2px 0 rgba(46,51,40,.06)" }}>
+              <div>
+                <span className="rs-stamp">Ritz's Kitchen</span>
+                <h1 className="rs-display" style={{ margin: "10px 0 0", fontSize: 32, lineHeight: 1, fontWeight: 700, color: T.ink }}>The Recipe Box</h1>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <Btn onClick={() => setShowImport(true)}>+ Add recipe</Btn>
+                <Btn variant="ghost" onClick={() => setShowShopping(true)}>Shopping list</Btn>
+              </div>
+            </header>
+
+            <input
+              value={query} onChange={e => setQuery(e.target.value)}
+              placeholder="Search by dish, ingredient, or tag…"
+              style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1.5px solid ${T.line}`, background: T.card, fontSize: 14.5, color: T.ink, marginBottom: 14 }}
+            />
+
+            <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6, marginBottom: 6 }}>
+              <Chip active={!mealFilter && !favFilter} onClick={() => { setMealFilter(null); setFavFilter(false); }}>All</Chip>
+              <Chip color={T.turmeric} active={favFilter} onClick={() => setFavFilter(f => !f)}>★ favorites</Chip>
+              {Object.keys(MEAL_COLORS).map(m => (
+                <Chip key={m} color={MEAL_COLORS[m]} active={mealFilter === m} onClick={() => setMealFilter(mealFilter === m ? null : m)}>
+                  {m}
+                </Chip>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: allTags.length ? 12 : 20, alignItems: "center" }}>
+              <Chip active={flavorFilter === "savory"} onClick={() => setFlavorFilter(flavorFilter === "savory" ? null : "savory")}>savory</Chip>
+              <Chip active={flavorFilter === "sweet"} onClick={() => setFlavorFilter(flavorFilter === "sweet" ? null : "sweet")}>sweet</Chip>
+              <span style={{ flex: 1 }} />
+              <Chip active={arrange === "grouped"} onClick={() => setArrange("grouped")}>grouped</Chip>
+              <Chip active={arrange === "list"} onClick={() => setArrange("list")}>list</Chip>
+            </div>
+
+            {allTags.length > 0 && (
+              <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6, marginBottom: 20, alignItems: "center" }}>
+                <span className="rs-mono" style={{ fontSize: 11, color: T.inkSoft, textTransform: "uppercase", letterSpacing: 1, whiteSpace: "nowrap" }}>tags</span>
+                {allTags.map(t => (
+                  <Chip key={t} active={tagFilter === t} onClick={() => setTagFilter(tagFilter === t ? null : t)}>#{t}</Chip>
+                ))}
+              </div>
+            )}
+
+            {(() => {
+              if (recipes === null) return <p style={{ color: T.inkSoft }}>Opening your shelf…</p>;
+              if (filtered.length === 0) return (
+                <div style={{ textAlign: "center", padding: "70px 20px", border: `2px dashed ${T.line}`, borderRadius: 16 }}>
+                  <div className="rs-display" style={{ fontSize: 20, marginBottom: 8 }}>
+                    {recipes.length === 0 ? "Your shelf is empty" : "Nothing matches"}
+                  </div>
+                  <p style={{ color: T.inkSoft, fontSize: 14, margin: "0 0 18px" }}>
+                    {recipes.length === 0
+                      ? "Add one with the Write it tab, or send a recipe to Claude in chat to import it."
+                      : "Try clearing a filter or searching something else."}
+                  </p>
+                  {recipes.length === 0 && <Btn onClick={() => setShowImport(true)}>Add your first recipe</Btn>}
+                </div>
+              );
+
+              const card = (r) => (
+                <button key={r.id} className="rs-card rs-btn" onClick={() => setSelectedId(r.id)}
+                  style={{ textAlign: "left", background: T.card, border: `1px solid ${T.line}`, borderTop: `4px solid ${MEAL_COLORS[r.meal && r.meal[0]] || T.clay}`, borderRadius: "4px 4px 10px 10px", padding: 0, cursor: "pointer", overflow: "hidden" }}>
+                  {thumbs[r.id] && <img src={thumbs[r.id]} alt="" style={{ width: "100%", height: 110, objectFit: "cover", display: "block" }} />}
+                  <div style={{ padding: "13px 15px 15px" }}>
+                    <div style={{ display: "flex", gap: 5, marginBottom: 8, alignItems: "center" }}>
+                      {r.meal.slice(0, 3).map(m => <Dot key={m} color={MEAL_COLORS[m] || T.clay} size={9} />)}
+                      {r.flavor === "sweet" && <Dot color={MEAL_COLORS.dessert} size={9} />}
+                      {r.favorite && <span style={{ marginLeft: "auto", color: T.turmeric, fontSize: 14 }}>★</span>}
+                    </div>
+                    <div className="rs-display" style={{ fontSize: 18, fontWeight: 600, color: T.ink, lineHeight: 1.15, marginBottom: 5 }}>{r.title}</div>
+                    <div className="rs-mono" style={{ fontSize: 11.5, color: T.inkSoft }}>
+                      {[r.cuisine, r.time_minutes ? `${r.time_minutes} min` : null].filter(Boolean).join(" · ")}
+                    </div>
+                  </div>
+                </button>
+              );
+              const grid = (items) => (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 14 }}>
+                  {items.map(card)}
+                </div>
+              );
+
+              // Grouped view only when nothing is narrowing the set
+              const grouped = arrange === "grouped" && !q && !mealFilter && !flavorFilter && !tagFilter && !favFilter;
+              if (!grouped) return grid(filtered);
+
+              const sections = Object.keys(MEAL_COLORS)
+                .map(m => ({ key: m, label: m, color: MEAL_COLORS[m], items: filtered.filter(r => r.meal.includes(m)) }))
+                .filter(s => s.items.length > 0);
+              const noMeal = filtered.filter(r => !r.meal || r.meal.length === 0);
+              if (noMeal.length) sections.push({ key: "other", label: "sauces & extras", color: T.clay, items: noMeal });
+
+              return (
+                <div style={{ display: "grid", gap: 26 }}>
+                  {sections.map(s => (
+                    <div key={s.key}>
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 14, background: s.color, color: T.ink, padding: "6px 16px 7px", borderRadius: "10px 10px 0 0", boxShadow: "inset 0 -3px 0 rgba(71,63,74,.10)" }}>
+                        <h2 className="rs-display" style={{ margin: 0, fontSize: 17, fontWeight: 700, color: T.ink, textTransform: "capitalize", letterSpacing: ".3px" }}>{s.label}</h2>
+                        <span className="rs-mono" style={{ fontSize: 12, color: T.ink, opacity: .7 }}>{s.items.length}</span>
+                      </div>
+                      {grid(s.items)}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            <div style={{ marginTop: 36, paddingTop: 18, borderTop: `1px solid ${T.line}`, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <span className="rs-mono" style={{ fontSize: 11, color: T.inkSoft, textTransform: "uppercase", letterSpacing: 1 }}>your data</span>
+              <Btn variant="ghost" onClick={handleBackup}>Back up recipes</Btn>
+              <label style={{ padding: "10px 18px", borderRadius: 10, border: `1.5px solid ${T.line}`, color: T.ink, fontSize: 14, fontWeight: 600, cursor: "pointer", background: "transparent" }}>
+                Restore from backup
+                <input type="file" accept="application/json,.json"
+                  style={{ position: "absolute", width: 1, height: 1, opacity: 0, overflow: "hidden" }}
+                  onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; handleRestore(f); }} />
+              </label>
+              {restoreMsg && <span style={{ fontSize: 13, color: T.leaf, width: "100%" }}>{restoreMsg}</span>}
+            </div>
+          </>
+        )}
+      </div>
+
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onSaved={handleSaved} />}
+    </div>
+  );
+}
+
+const _root = ReactDOM.createRoot(document.getElementById("root"));
+_root.render(<RecipeShelf />);
+</script>
+</body>
+</html>
